@@ -226,14 +226,12 @@ const ACCESS_PASSWORD = "justtest";
 function checkGate(){
   const v = (document.getElementById('gatePwd').value||"").trim();
   if(v === ACCESS_PASSWORD){
-    try{ sessionStorage.setItem('gate_ok','1'); }catch(e){}
     document.getElementById('gate').style.display='none';
   } else {
     document.getElementById('gateErr').textContent = "口令错误，请重试 / Wrong password";
   }
 }
-// 同一标签页内已验证过则免输
-try{ if(sessionStorage.getItem('gate_ok')==='1'){ const g=document.getElementById('gate'); if(g) g.style.display='none'; } }catch(e){}
+// 每次打开/刷新都需要重新输入口令
 // =====================================================
 
 // ---------- 双大类模板库：美妆个护 / 家清除臭，各 10 套创意方向 ----------
