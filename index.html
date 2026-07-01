@@ -61,6 +61,17 @@
   pre{margin:0; white-space:pre-wrap; word-break:break-word; font-size:13px; color:#1f2733;
     font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:#f6f8fa; border:1px solid var(--line); border-radius:8px; padding:12px}
   .err{color:var(--warn); font-size:13px; margin-top:8px; min-height:18px}
+  .hitem{background:var(--card2); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:12px}
+  .hitem .htop{display:flex; justify-content:space-between; align-items:flex-start; gap:12px}
+  .hitem .htitle{font-size:14px; font-weight:700; color:var(--txt)}
+  .hitem .hmeta{font-size:12px; color:var(--sub); margin-top:3px}
+  .hitem .hbtns{display:flex; gap:8px; flex-shrink:0}
+  .hbtn{background:var(--accent); color:#fff; font-size:12px; padding:6px 12px; border-radius:8px; white-space:nowrap}
+  .hbtn.ghost{background:var(--card); color:var(--sub); border:1px solid var(--line)}
+  .hbtn.del{background:#fee2e2; color:#dc2626; border:1px solid #fecaca}
+  .hbtn.done{background:var(--ok); color:#fff}
+  .hitem pre{margin-top:12px}
+  .hempty{color:var(--sub); text-align:center; padding:24px 0; font-size:14px}
   footer{text-align:center; color:var(--sub); font-size:12px; margin-top:30px}
 </style>
 </head>
@@ -215,6 +226,32 @@
     <div class="results" id="results">
       <div class="empty">点击「生成脚本」后，结果将显示在这里。每条脚本包含 Hook、灯光、运镜、转场、口播、完整成片 Prompt 与负向约束。</div>
     </div>
+  </section>
+
+  <!-- 4. 历史记录 -->
+  <section class="card">
+    <div class="step"><span class="num">4</span><h2>历史记录</h2></div>
+    <p class="hint">每次生成都会自动保存在你本机浏览器（不上传），方便随时找回之前的 prompt。可单条查看 / 复制 / 删除。</p>
+    <div class="grid" style="margin-bottom:12px">
+      <div class="field" style="margin-bottom:0">
+        <label>按产品名搜索</label>
+        <input id="hSearch" type="text" placeholder="输入产品名关键词，例如：除臭 / lipstick" oninput="renderHistory()">
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <label>按日期筛选</label>
+        <div style="display:flex; gap:8px; align-items:center">
+          <input id="hFrom" type="date" style="flex:1" onchange="renderHistory()">
+          <span style="color:var(--sub); font-size:13px">至</span>
+          <input id="hTo" type="date" style="flex:1" onchange="renderHistory()">
+        </div>
+      </div>
+    </div>
+    <div class="actions" style="margin-bottom:14px">
+      <button class="reset" style="flex:none" onclick="clearHistFilter()">清除筛选</button>
+      <button class="reset" style="flex:none" onclick="exportHistory()">导出历史为文件</button>
+      <button class="reset" style="flex:none" onclick="clearHistory()">清空全部历史</button>
+    </div>
+    <div id="history"></div>
   </section>
 
   <footer>本工具完全在浏览器本地运行，不上传任何数据 · 专为商家在 AI 视频工具上制作短视频而打造</footer>
@@ -482,6 +519,18 @@ async function generate(){
   }
   results.scrollIntoView({behavior:'smooth', block:'start'});
 
+  // 保存到本地历史记录
+  saveHistory({
+    ts: Date.now(),
+    cat: cat.def.label,
+    product: ctx.product,
+    selling: ctx.selling,
+    lang: langTag,
+    count: items.length,
+    hasIdea: ideasEN.length>0,
+    scripts: window.__all.slice()
+  });
+
   }catch(e){
     err.textContent = "⚠️ 翻译服务暂时不可用，请稍后重试（或检查网络）。";
   }finally{
@@ -510,6 +559,119 @@ function resetForm(){
   document.getElementById('err').textContent="";
   document.getElementById('results').innerHTML='<div class="empty">点击「生成脚本」后，结果将显示在这里。</div>';
 }
+
+// ====== 历史记录（保存在本机浏览器 localStorage，不上传）======
+const HKEY = "video_prompt_history_v1";
+const HMAX = 200; // 最多保留 200 条，超出自动丢弃最旧的
+function loadHist(){ try{ return JSON.parse(localStorage.getItem(HKEY)||"[]"); }catch(e){ return []; } }
+function storeHist(list){ try{ localStorage.setItem(HKEY, JSON.stringify(list)); }catch(e){} }
+function saveHistory(entry){
+  const list = loadHist();
+  list.unshift(entry);
+  if(list.length>HMAX) list.length = HMAX;
+  storeHist(list);
+  renderHistory();
+}
+function fmtTime(ts){
+  const d = new Date(ts);
+  const p = n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function esc(s){ return String(s||"").replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function renderHistory(){
+  const box = document.getElementById('history');
+  if(!box) return;
+  let list = loadHist();
+  const total = list.length;
+
+  // 筛选：按产品名关键词 + 按日期范围
+  const kw = ((document.getElementById('hSearch')||{}).value||"").trim().toLowerCase();
+  const fromV = (document.getElementById('hFrom')||{}).value||"";
+  const toV = (document.getElementById('hTo')||{}).value||"";
+  const fromTs = fromV ? new Date(fromV+"T00:00:00").getTime() : null;
+  const toTs = toV ? new Date(toV+"T23:59:59.999").getTime() : null;
+  if(kw) list = list.filter(it=>String(it.product||"").toLowerCase().includes(kw));
+  if(fromTs!==null) list = list.filter(it=>it.ts>=fromTs);
+  if(toTs!==null) list = list.filter(it=>it.ts<=toTs);
+  const filtering = !!(kw||fromV||toV);
+
+  if(!total){ box.innerHTML = '<div class="hempty">暂无历史记录。生成脚本后会自动保存到这里。</div>'; return; }
+  if(!list.length){ box.innerHTML = '<div class="hempty">没有符合筛选条件的记录（共 '+total+' 条历史）。</div>'; return; }
+  box.innerHTML = "";
+  if(filtering){
+    const tip = document.createElement('div'); tip.className='hmeta'; tip.style.margin='0 0 12px';
+    tip.textContent = `筛选结果：${list.length} / ${total} 条`;
+    box.appendChild(tip);
+  }
+  list.forEach((it)=>{
+    const div = document.createElement('div'); div.className='hitem';
+    const top = document.createElement('div'); top.className='htop';
+    const ideaTag = it.hasIdea ? " · 含自定义剧情" : "";
+    top.innerHTML = `<div><div class="htitle">${esc(it.product)||"(未填产品)"}</div>`+
+      `<div class="hmeta">${fmtTime(it.ts)} · ${esc(it.cat)} · ${it.count} 套 · ${esc(it.lang)}${ideaTag}<br>卖点：${esc(it.selling)||"—"}</div></div>`;
+    const btns = document.createElement('div'); btns.className='hbtns';
+    const viewBtn = document.createElement('button'); viewBtn.className='hbtn ghost'; viewBtn.textContent='展开';
+    const copyBtn = document.createElement('button'); copyBtn.className='hbtn'; copyBtn.textContent='复制全部';
+    const delBtn = document.createElement('button'); delBtn.className='hbtn del'; delBtn.textContent='删除';
+    btns.appendChild(viewBtn); btns.appendChild(copyBtn); btns.appendChild(delBtn);
+    top.appendChild(btns);
+    div.appendChild(top);
+    const pre = document.createElement('pre'); pre.style.display='none';
+    pre.textContent = (it.scripts||[]).join("\n\n\n");
+    div.appendChild(pre);
+    viewBtn.onclick = ()=>{ const open = pre.style.display==='none'; pre.style.display = open?'block':'none'; viewBtn.textContent = open?'收起':'展开'; };
+    copyBtn.onclick = ()=>{ navigator.clipboard.writeText((it.scripts||[]).join("\n\n\n")); const o=copyBtn.textContent; copyBtn.textContent='已复制'; copyBtn.classList.add('done'); setTimeout(()=>{copyBtn.textContent=o; copyBtn.classList.remove('done')},1500); };
+    delBtn.onclick = ()=>{ const l=loadHist().filter(x=>x.ts!==it.ts); storeHist(l); renderHistory(); };
+    box.appendChild(div);
+  });
+}
+function clearHistFilter(){
+  const s=document.getElementById('hSearch'); if(s) s.value="";
+  const f=document.getElementById('hFrom'); if(f) f.value="";
+  const t=document.getElementById('hTo'); if(t) t.value="";
+  renderHistory();
+}
+function clearHistory(){
+  if(!loadHist().length) return;
+  if(confirm("确定要清空全部历史记录吗？此操作不可恢复。")){ storeHist([]); renderHistory(); }
+}
+// 导出历史为文本文件（默认导出当前筛选结果；无筛选则导出全部）
+function exportHistory(){
+  let list = loadHist();
+  if(!list.length){ alert("暂无历史记录可导出。"); return; }
+  const kw = ((document.getElementById('hSearch')||{}).value||"").trim().toLowerCase();
+  const fromV = (document.getElementById('hFrom')||{}).value||"";
+  const toV = (document.getElementById('hTo')||{}).value||"";
+  const fromTs = fromV ? new Date(fromV+"T00:00:00").getTime() : null;
+  const toTs = toV ? new Date(toV+"T23:59:59.999").getTime() : null;
+  if(kw) list = list.filter(it=>String(it.product||"").toLowerCase().includes(kw));
+  if(fromTs!==null) list = list.filter(it=>it.ts>=fromTs);
+  if(toTs!==null) list = list.filter(it=>it.ts<=toTs);
+  if(!list.length){ alert("当前筛选条件下没有可导出的记录。"); return; }
+  const lines = [];
+  lines.push("AI 短视频脚本生成器 · 历史记录导出");
+  lines.push("导出时间：" + fmtTime(Date.now()));
+  lines.push("记录条数：" + list.length + (kw||fromV||toV ? "（当前筛选结果）" : "（全部）"));
+  lines.push("=".repeat(60));
+  list.forEach((it,i)=>{
+    lines.push("");
+    lines.push(`【第 ${i+1} 条】${it.product||"(未填产品)"}`);
+    lines.push(`时间：${fmtTime(it.ts)} · 类目：${it.cat} · ${it.count} 套 · 语言：${it.lang}${it.hasIdea?" · 含自定义剧情":""}`);
+    lines.push(`卖点：${it.selling||"—"}`);
+    lines.push("-".repeat(60));
+    lines.push((it.scripts||[]).join("\n\n\n"));
+    lines.push("=".repeat(60));
+  });
+  const blob = new Blob([lines.join("\n")], {type:"text/plain;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const d = new Date(); const p=n=>String(n).padStart(2,'0');
+  a.href = url;
+  a.download = `video-prompt-history_${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}.txt`;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+}
+renderHistory();
 </script>
 </body>
 </html>
